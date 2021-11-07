@@ -1,0 +1,69 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Created by: Sivee Chawla
+% Revised on: 5 October 2018 
+% Purpose : Estimating Enrichment factor (EF) for the neighbourhood
+% interaction
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function[Nk,nk,EF_percell,Denom_N] = EF_function(neigh_eight,shp, no_cell)
+
+%***********************************************
+%Identifying the lulc types in the shapefile shp
+%***********************************************
+% temp = zeros(no_cell);
+for i = 1 : no_cell
+    temp(i) = shp(i).LULC;
+end 
+lulctype = unique(temp);
+no_lulctype = size(lulctype');
+
+Nk = zeros(no_lulctype);
+% For total cells Nk/N
+for i = 1 : no_cell
+    for j = 1 : no_lulctype
+        if (strcmp(shp(i).LULC,lulctype(j))==1)
+            Nk(j)=Nk(j)+1;
+            
+        end
+    end 
+end 
+
+%To check the output of above for loop
+
+if (sum(Nk) == no_cell); 
+    disp('Value of Total Nk estimated is correct. Please, proceed!!');
+else
+    disp('Issue in calculation of total Nk. Kindly,Redo..existing function');
+    return; 
+end 
+
+Denom_N = (Nk/no_cell); 
+nk = zeros(no_cell,no_lulctype(1));
+no_of_neigh = zeros(no_cell);
+
+
+for i = 1:no_cell  %for all the cell
+    for k = 1 : 8
+        if (neigh_eight(i,k)>0)
+            no_of_neigh(i)= no_of_neigh(i)+1; %effective number of neighbours 
+            for j = 1:no_lulctype
+                if((strcmp(shp(neigh_eight(i,k)).LULC,lulctype(j))==1))
+                    nk(i,j)=nk(i,j)+1;
+                end   
+            end       
+        end
+    end    
+end
+ 
+%*********************************************
+%**Estimating Enriching function for each cell
+%*********************************************
+
+
+for i = 1 : no_cell
+    for j = 1:no_lulctype
+        EF_percell(i,j)=(nk(i,j)/no_of_neigh(i))/Denom_N(j);
+    end 
+end 
+
+end
