@@ -1,0 +1,329 @@
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Created by: Sivee Chawla
+% Created on:  8 June 2018
+% Purpose : 'Main' function for Institutional fit by exploring
+% spatially explicit feedbacks. 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function Main 
+
+%%
+foldername = input('Enter folder name for storing results (date_Vx)','s');
+mkdir (foldername);
+
+S = shaperead('C:\Users\jc442626\Documents\PhD\PhD_Tasks_imp\RQ1\VectorFiles_ShapeFiles\SimInput_n30 - V1'); %S give strucutre and A are the attributes of the file 
+f1 = figure;
+% symbspec = LULCSymbolSpec(S);
+mapshow(S,'symbolspec',LULCSymbolSpec);
+
+
+prompt = 'Do you want to close the main figure? (y/n)';
+cl_fig = input(prompt,'s');
+if (strcmp(cl_fig,'y')==1)
+close(f1);
+end
+
+%To work on subset of the shapefile 
+f2 = figure;
+no_cell_superset = numel(S); % returns total number of cells in shape file 
+Ss= Shapefile_Subset(); %Subsetted shapefile
+
+
+% f2 = figure ;
+% mapshow(Ss,'symbolspec',LULCSymbolSpec);
+
+%MOVE IT TO THE FUNCTION FINALLY (THIS IS TEMPORARILY HERE)
+% bbox = [1,1;10,10];
+% Ss = shaperead('C:\Users\jc442626\Documents\PhD\MonthlyTasks\RQ1\VectorFiles_ShapeFiles\T2_Grid.shp', 'BoundingBox',bbox);
+
+% mapshow(Ss);
+% mapshow(Ss,'symbolspec',LULCSymbolSpec);
+no_cell_subset = numel(Ss);
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% IDENTIFY NEIGHBOURS:   This module identifies neighbours. 
+% Yet to be extended to eight numbers. At the moment it is hardcoded for
+% four neighbours that share edges 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+no_neigh = input('Enter maximum number of neighbours:');
+
+identify_offset = input ('Do you want to include the entire shape file or the subset ? (1 (entire shapefil) /2 (subset)) :');
+
+%Calculate offset value and number of cells based on data set selected
+%above
+
+if (identify_offset == 1)
+    m_offset = sqrt(no_cell_superset); % Assuming that it is a square matrix
+    no_cell = no_cell_superset;
+    newS = S;
+    disp('USING COMPLETE DATA SET');
+    
+else
+    if (identify_offset == 2)
+       m_offset = sqrt(no_cell_subset);  % Assuming that it is a square matrix
+       no_cell = no_cell_subset;
+       newS = Ss;
+    else
+        disp('you have entered wrong value');
+    end
+end
+
+% array stores the FOUR NEIGHBOURS for each target cell. Target cell is
+% identified by row number and columns have the neighbours 
+
+% factor_temp = 0;
+for i = 1 : no_cell
+  neigh_array(i,:) = [i+1,i-1,i+m_offset, i-m_offset];  % in the order of E,W,N,S 
+  if(i>29)
+%   factor_temp = factor_temp + 1 ;
+    if(mod(i,m_offset)==0) %When the cell is on end of the
+        %the right edge Ignore right/neighbour on the EAST which is the first elelement of neigh_array
+        neigh_array(i,1) = -1;
+    end
+    if (mod(i-1,m_offset)==0)%Ignore left/neighbour on the WEST which is the first elelement of neigh_array
+        neigh_array(i,2) = -1;
+    end
+    
+    
+  end 
+end
+
+% xlswrite(neigh_array.xls);
+
+% array stores the EIGHT NEIGHBOURS for each target cell. Target cell is
+% identified by row number and columns have the neighbours 
+for i = 1 :no_cell
+    neigh_array_eight(i,:)=[i+1,i-1,i+m_offset, i-m_offset, i-m_offset+1,i-m_offset-1,i+m_offset-1,i+m_offset+1 ];
+    % in the order of E,W,N,S,SE,SW,NW,NE
+end
+
+%************** LULC change *********************
+
+ LULCtype = input('Select LULC type (A/F/J/U)','s');
+%*********************************************************
+%*************REACTION TERM PARAMETERS********************
+%*********************************************************
+%RURAL GROWTH equation parameters  % taking value from paper of Chen 2009
+%Appendix 
+a = 0.002 ; 
+b = 0.001;
+% phi_rural = 0.03615;
+phi_rural = 0.05044;
+
+%URBAN GROWTH equation parameters
+c = 0.002;
+d = 0.001;
+phi_urban = 0.05044; 
+
+%CARRYING CAPACITY 
+kc = 20; %27Aug
+
+%************************************************************
+%************DIFFUSION TERM PARAMETERS***********************
+%************************************************************
+lambda1 = 1;  %weight for contextual information
+lambda2 = 1; % weight for pay off matrix
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%LULC similarlity matrix 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%A,F,J,U vs A,F,J,U
+%actual values have to be calculated - some random values are being used
+%for now  - date 7 Aug 2018
+SI_Mtx = [1,0.75,0.35,0.25;0.75,1,0.75,0.1;0.35,0.75,1,0.65;0.5,0.75,0.5,1];
+
+Options_LULC  = {'A','F','J','U'};  %LULC type 
+
+%Enter upper and lower limit for the cost of fighting rural opponent
+disp('Enter upper and lower limit for cost of fighting the rural opponent');
+cost_up=input('UPPER LIMIT');
+cost_ll=input('LOWER LIMIT');
+
+%Enter type of D_SHMI to be assigned. 
+rand_option = input('How do you want D_SHMI values to generated (LUZ based == 1  or random == 0) ?');
+if (rand_option>1)
+    disp('you have entered wrong value, enter again');
+    rand_option = input('How do you want D_SHMI values to generated (LUZ based == 1  or random == 0) ?');
+end
+    
+
+
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%REACTION DIFFUSION TERM BEGINS FROM HERE 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+newS = S;
+
+itr = input('Enter number of iterations');
+%To check update in rural population 
+ tempcheck_ruralpop = zeros(itr,no_cell);
+
+Sumtotal_UrbanPop = zeros(1,itr);  %Total urban population per iteration 
+
+LULCsum_A= zeros(1,itr);
+
+count = zeros(itr,no_cell);
+
+
+
+for i = 1 : itr  % For several iterations - where each iteration is a time step
+    
+disp('iteration No:');
+disp(i);
+    
+% counter_update = zeros(1,itr);
+%*************************************************************************
+% REPRODUCTION FUNCTION  - urban rural interaction model that will run
+% percell for every iteration
+%*************************************************************************
+
+
+%**********OUTPUT SUMTOTAL OF URBANPOPULATION AT EVERY ITERATION
+%****************************************************************
+ Sumtotal_UrbanPop(i)= sum([newS(:).Urban_pop]);
+%
+   for j =  1 :  no_cell
+       
+        %This CALCULATES TOTAL CELLS WITH LULC TYPE 'A' AT EACH ITERATION
+     
+        if(strcmp(newS(j).LULC,'A') ~= 0);
+            LULCsum_A(i) = LULCsum_A(i) + 1;    
+        end 
+        % TO CALCULATE DIFFERENCE IN NUMBER OF CELLS WITH LULC TYPE 'A'
+%         tot_pop=0;
+        if (newS(j).K_check == 0) %reaction term should only proceed if the population hasn't reached the carrying capacity yet
+         
+            tot_pop = 0;
+%             Tot_pop = newS(j).Pop_count;  %Total Population
+            Urban_pop = newS(j).Urban_pop; %Urban population in each cell
+            Rural_pop = newS(j).Rural_pop; %Rural population in each cell
+            [up_next,rp_next]= Reaction_PopGrowth(Urban_pop,Rural_pop,a,b,c,d,phi_urban,phi_rural);
+             tempcheck_ruralpop(i,j) = rp_next;
+            tot_pop = up_next + rp_next;
+            if((up_next > - 1)&&(rp_next>-1))
+                newS = setfield(newS,{j},'Urban_pop', up_next); %update urban pop per cell
+                newS = setfield(newS,{j},'Rural_pop', rp_next); %update rural pop per cell
+%                 count(i,j) = 1;
+                newS = setfield(newS,{j},'Pop_count', tot_pop); % update total pop per cell
+            end
+        end
+        %check the maximum capacity flag 
+
+        if (newS(j).Pop_count > kc)
+            disp('updating K_Check :');
+            disp(j);
+             count(i,j);
+            newS = setfield(newS,{j},'K_check',1);
+        end   
+
+        % Date : 6 August 2018 - if the cell reaches its carrying capacity
+    end
+
+%**************************************************************************
+% DIFFUSION TERM : it includes two componets (1) diffusion terms 
+% (2)population size for diffusion 
+% Component (1) is further divided into three more components 
+% 1.1 SHMI (Di) 
+% 1.2 Spatial contextual information or Neighbourhood information 
+% 1.3 Game theory - Infrastructure (HHMI, NI , SI and HI)
+% Diffusion will occur when carrying capacity flag, K_check = 1, which
+% implies, diffusion will occur when carrying capacity reaches the carrying
+% capacity of the cell. 
+%**************************************************************************
+
+
+
+%***************************************************************
+%****************HAWK AND DOVE INTERACTION**********************
+%***************************************************************
+
+% [temp_sel,move_to_cell,nextS] = Neigh_Interaction (neigh_array,newS,no_neigh,no_cell);  % Call to play games among cell
+% [temp_sel,move_to_cell,nextS,temprule,target_cell,counter] = Hawk_Dove_Game_2 (neigh_array,newS,no_neigh,no_cell,kc,SI_Mtx,neigh_array_eight,lambda1,lambda2, LULCtype,Options_LULC,cost_up,cost_ll);  % Call to play games among cell
+clear temp_sel
+clear move_to_cell
+clear nextS
+clear temprule
+clear target_cell
+clear temprule
+D_SHMI = Generating_SHMI_Value(newS,no_cell,rand_option);
+All_DSHMI(i,:)=D_SHMI;
+% [temp_sel,move_to_cell,nextS,temprule,target_cell] = Hawk_Dove_Game_2 (neigh_array,newS,no_neigh,no_cell,kc,SI_Mtx,neigh_array_eight,lambda1,lambda2,LULCtype,Options_LULC,cost_up,cost_ll);  % Call to play games among cell
+[temp_sel,move_to_cell,nextS,target_cell] = Hawk_Dove_Game_2_VarD (neigh_array,newS,no_neigh,no_cell,kc,SI_Mtx,neigh_array_eight,lambda1,lambda2,LULCtype,Options_LULC,cost_up,cost_ll,D_SHMI);  % Call to play games among cell
+
+newS = nextS;  
+
+%Save temprule 
+
+% Rule_univariateAnalysis(i,:,:) = temprule;  %Need pre allocation
+% counter_update(i) = counter; 
+
+%target_cell_periteration(i,:)= (target_cell);
+% LULCtype = input('Select LULC type for next iteration (A/F/J/U):','s');
+%*****temporary arrangement************
+LULCtype = 'A'; 
+ 
+ 
+ if ~any(strcmp(Options_LULC,LULCtype))
+     disp('you entered wrong choice');
+     LULCtype = input('Select LULC type for next iteration (A/F/J/U):','s');
+ end 
+
+
+%12 June.. the parameters being passed to the function Neigh_Interaction
+%are hard coded for the time being - which has to be updated later.
+% disp(temp_sel);
+% disp(move_to_cell);
+
+
+hold on;
+pause(5);
+f(i+2) = figure; 
+mapshow(newS,'symbolspec',LULCSymbolSpec);
+
+%save shape file after every iteration 
+shpfile = strcat('C:\Users\jc442626\Documents\PhD\PhD_Tasks_imp\RQ1\MatlabCode','\', foldername,'\','outputshp_',num2str(i));
+shapewrite(newS,shpfile);
+
+
+end 
+
+% save Rule_univariateAnalysis;
+% f3 = figure; 
+
+temp11 = zeros(1,itr-1);
+
+for i = 1:(itr-1)
+    
+    temp11(i) = LULCsum_A(i+1)-LULCsum_A(i);
+end
+
+%plot 
+
+f(itr+4)= figure;
+plot (Sumtotal_UrbanPop);
+xlabel('Iterations');
+ylabel('urban population');
+plot_1 = strcat('C:\Users\jc442626\Documents\PhD\PhD_Tasks_imp\RQ1\MatlabCode','\', foldername,'\','Total_UrbanPop');
+saveas(f(itr+4),plot_1,'fig');
+
+f(itr+5) = figure;
+plot (LULCsum_A);
+xlabel('Iterations');
+ylabel('No. of cells with LULC type, Agri(A)');
+plot_2 = strcat('C:\Users\jc442626\Documents\PhD\PhD_Tasks_imp\RQ1\MatlabCode','\', foldername,'\','Nocell_Agri_plot');
+saveas(f(itr+5),plot_2,'fig');
+
+
+% %save temporarily
+
+file_parameter_analysis = strcat('C:\Users\jc442626\Documents\PhD\PhD_Tasks_imp\RQ1\MatlabCode','\', foldername,'\','ParameterAnalysis.xlsx');
+xlswrite(file_parameter_analysis,All_DSHMI,1); % Univariate analysis of random values (0,1) of D using 
+% xlswrite('movetocell_30Aug_v2.xlsx',temp_sel(:,:,1),2);
+% xlswrite('movetocell_30Aug_v2.xlsx',temp_sel(:,:,2),3);
+% xlswrite('movetocell_30Aug_v2.xlsx',move_to_cell',1);
+% xlswrite('movetocell_29Aug_v2.xlsx',target_cell_periteration,4);
+end
