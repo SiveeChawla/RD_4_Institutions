@@ -1,0 +1,7 @@
+Step 1: Develop Input images
+
+To start first start with developing input images developed using R-code (see folder R-code). Also, input images used in the paper is also stored in Input Images folders.
+
+Step 2: Run the model
+
+To run the model access the folder Model Code. The model is developed in Matlab. Copy all the matlab files in the same folder. The Main file has the Main function which calls rest of the functions and sub-modules. Reset folder paths for accessing the input files and writing the output images
