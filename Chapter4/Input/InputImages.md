@@ -1,1 +1,1 @@
-This folder consists of one dataset of images used in chapter 4. 
+This folder consists of example of images used in the model. 
